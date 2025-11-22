@@ -1,9 +1,16 @@
 import streamlit as st
-from openai import OpenAI
+import os
 import json
+from openai import OpenAI
+
+# Load API key from environment variable
+api_key = os.environ.get("OPENAI_API_KEY")
+if not api_key:
+    st.error("Please set the OPENAI_API_KEY environment variable.")
+    st.stop()
 
 # Initialize OpenAI client
-client = OpenAI()
+client = OpenAI(api_key=api_key)
 
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
 st.title("📚 Readhacker: Book Metadata Finder")
