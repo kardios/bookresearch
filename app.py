@@ -60,11 +60,11 @@ BOOK_SCHEMA = {
 
 # Streamlit UI
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
-st.title("📚 Readhacker: Metadata + Confidence Checker (GPT-5.1)")
+st.title("📚 Readhacker: Metadata Fetch (GPT-5.1)")
 
 st.markdown(
-    "Fetch canonical book metadata and automatically check confidence per field "
-    "by cross-referencing sources. Toggle reasoning effort to compare speed vs depth."
+    "Fetch canonical book metadata from the web using GPT-5.1. "
+    "You can toggle reasoning effort for speed vs depth."
 )
 
 # Inputs
@@ -78,7 +78,7 @@ reasoning_effort = st.selectbox(
     help="none = fastest, low/medium/high = progressively more reasoning and depth"
 )
 
-if st.button("Fetch Metadata + Confidence"):
+if st.button("Fetch Metadata"):
     if not book_title.strip():
         st.warning("Please enter a book title.")
     else:
@@ -100,7 +100,6 @@ if st.button("Fetch Metadata + Confidence"):
             """
 
             try:
-                # Fetch metadata
                 response = client.responses.create(
                     model="gpt-5.1",
                     tools=[{"type": "web_search"}],
@@ -115,11 +114,10 @@ if st.button("Fetch Metadata + Confidence"):
                 st.code(metadata_output, language="json")
                 st.info(f"Metadata fetch completed in {elapsed:.2f} seconds")
 
-                # Parse JSON
                 try:
                     metadata_json = json.loads(metadata_output)
 
-                    # Auto-normalization
+                    # Normalize arrays
                     if isinstance(metadata_json["title"].get("english"), str):
                         metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
                     if isinstance(metadata_json.get("languages"), str):
@@ -131,75 +129,49 @@ if st.button("Fetch Metadata + Confidence"):
                     if isinstance(metadata_json.get("editions"), dict):
                         metadata_json["editions"] = [metadata_json["editions"]]
 
-                    # Validate against schema
+                    # Validate schema
                     validate(instance=metadata_json, schema=BOOK_SCHEMA)
                     st.success("Metadata is valid according to Readhacker schema!")
 
-                    # === Confidence check ===
-                    st.subheader("Confidence Check by Cross-Referencing Sources")
-                    confidence_prompt = f"""
-                    Given this metadata for a book:
-                    {json.dumps(metadata_json, indent=2)}
-                    
-                    And the listed sources:
-                    {json.dumps(metadata_json.get('sources', []), indent=2)}
-                    
-                    For each field (title, authors, editions, languages, genres), check the sources:
-                    - If all sources agree, mark as VERIFIED.
-                    - If there is minor discrepancy, mark as PARTIALLY VERIFIED.
-                    - If sources conflict, mark as CONFLICTING.
-                    
-                    Return a JSON object with confidence per field, like:
-                    {{
-                      "title": "Verified",
-                      "authors": "Partially Verified",
-                      "editions": "Conflicting",
-                      "languages": "Verified",
-                      "genres": "Verified"
-                    }}
-                    """
-
-                    confidence_resp = client.responses.create(
-                        model="gpt-5.1",
-                        reasoning={"effort": reasoning_effort},
-                        tool_choice="auto",
-                        input=confidence_prompt
-                    )
-
-                    confidence_json = json.loads(confidence_resp.output_text)
-
-                    # === Display in color-coded table ===
+                    # Display nicely in table
                     table_data = []
-                    for field in ["title", "authors", "editions", "languages", "genres"]:
-                        value = metadata_json.get(field, "N/A")
-                        conf = confidence_json.get(field, "Unknown")
 
-                        # Format value
-                        if isinstance(value, list):
-                            display_value = ", ".join([json.dumps(v) if isinstance(v, dict) else str(v) for v in value])
-                        elif isinstance(value, dict):
-                            display_value = json.dumps(value)
-                        else:
-                            display_value = str(value)
+                    # Title
+                    table_data.append({
+                        "Field": "Title (Original)",
+                        "Value": metadata_json["title"].get("original", "")
+                    })
+                    table_data.append({
+                        "Field": "Title (English)",
+                        "Value": ", ".join(metadata_json["title"].get("english", []))
+                    })
 
-                        # Color coding
-                        if conf.lower() == "verified":
-                            color = "background-color: #d4edda"  # Green
-                        elif conf.lower() == "partially verified":
-                            color = "background-color: #fff3cd"  # Yellow
-                        elif conf.lower() == "conflicting":
-                            color = "background-color: #f8d7da"  # Red
-                        else:
-                            color = ""
+                    # Authors
+                    author_strings = [
+                        f"{a.get('full_name')} ({a.get('background')})"
+                        for a in metadata_json.get("authors", [])
+                    ]
+                    table_data.append({"Field": "Authors", "Value": "; ".join(author_strings)})
 
-                        table_data.append({"Field": field, "Value": display_value, "Confidence": conf, "Color": color})
+                    # Editions
+                    edition_strings = [
+                        f"{e.get('edition_version')} | {e.get('publication_date')} | {e.get('language')}"
+                        for e in metadata_json.get("editions", [])
+                    ]
+                    table_data.append({"Field": "Editions", "Value": "; ".join(edition_strings)})
+
+                    # Languages
+                    table_data.append({"Field": "Languages", "Value": ", ".join(metadata_json.get("languages", []))})
+
+                    # Genres
+                    table_data.append({"Field": "Genres", "Value": ", ".join(metadata_json.get("genres", []))})
+
+                    # Sources
+                    table_data.append({"Field": "Sources", "Value": "\n".join(metadata_json.get("sources", []))})
 
                     df = pd.DataFrame(table_data)
-
-                    def highlight_confidence(row):
-                        return [row["Color"]] * len(row)
-
-                    st.dataframe(df.style.apply(highlight_confidence, axis=1).hide_columns(["Color"]))
+                    st.subheader("Structured Metadata Table")
+                    st.dataframe(df)
 
                 except json.JSONDecodeError:
                     st.error("Metadata output is not valid JSON.")
