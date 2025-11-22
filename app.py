@@ -14,12 +14,12 @@ if not api_key:
 # Initialize OpenAI client
 client = OpenAI(api_key=api_key)
 
-# Streamlined JSON schema
+# Multi-valued JSON schema for Readhacker
 BOOK_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Readhacker Book Metadata",
     "type": "object",
-    "required": ["title", "author", "publication_date", "language", "genre_category"],
+    "required": ["title", "authors", "languages", "genres", "sources"],
     "properties": {
         "title": {
             "type": "object",
@@ -29,19 +29,30 @@ BOOK_SCHEMA = {
             },
             "required": ["original"]
         },
-        "author": {
-            "type": "object",
-            "properties": {
-                "full_name": {"type": "string"},
-                "background": {"type": "string"},
-                "life_dates": {"type": "string"}
-            },
-            "required": ["full_name"]
+        "authors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["full_name", "background"],
+                "properties": {
+                    "full_name": {"type": "string"},
+                    "background": {"type": "string"}
+                }
+            }
         },
-        "publication_date": {"type": "string"},
-        "edition_version": {"type": "string"},
-        "language": {"type": "array", "items": {"type": "string"}},
-        "genre_category": {"type": "array", "items": {"type": "string"}},
+        "editions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "edition_version": {"type": "string"},
+                    "publication_date": {"type": "string"},
+                    "language": {"type": "string"}
+                }
+            }
+        },
+        "languages": {"type": "array", "items": {"type": "string"}},
+        "genres": {"type": "array", "items": {"type": "string"}},
         "sources": {"type": "array", "items": {"type": "string", "format": "uri"}}
     },
     "additionalProperties": False
@@ -68,8 +79,13 @@ if st.button("Fetch Metadata"):
             You are a research assistant with web access. Given the book title '{book_title}' and author '{book_author}', 
             provide canonical metadata for the book in strict JSON format matching this schema:
 
-            Required fields: title (original and English), author (full_name, background, life_dates), 
-            publication_date, edition_version, language, genre_category, sources (URLs).
+            Required fields: 
+            - title (original and English) 
+            - authors (full_name and background; can be multiple) 
+            - editions (edition_version, publication_date, language; can be multiple) 
+            - languages (array) 
+            - genres (array) 
+            - sources (URLs; array)
 
             Only include info relevant to the correct book. Do not hallucinate.
             """
@@ -95,14 +111,21 @@ if st.button("Fetch Metadata"):
                     metadata_json = json.loads(metadata_output)
 
                     # === Auto-normalization ===
+                    # Ensure arrays
                     if isinstance(metadata_json["title"].get("english"), str):
                         metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
 
-                    if isinstance(metadata_json.get("language"), str):
-                        metadata_json["language"] = [metadata_json["language"]]
+                    if isinstance(metadata_json.get("languages"), str):
+                        metadata_json["languages"] = [metadata_json["languages"]]
 
-                    if isinstance(metadata_json.get("genre_category"), str):
-                        metadata_json["genre_category"] = [metadata_json["genre_category"]]
+                    if isinstance(metadata_json.get("genres"), str):
+                        metadata_json["genres"] = [metadata_json["genres"]]
+
+                    if isinstance(metadata_json.get("authors"), dict):
+                        metadata_json["authors"] = [metadata_json["authors"]]
+
+                    if isinstance(metadata_json.get("editions"), dict):
+                        metadata_json["editions"] = [metadata_json["editions"]]
 
                     # Validate against schema
                     validate(instance=metadata_json, schema=BOOK_SCHEMA)
