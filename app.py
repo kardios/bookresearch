@@ -1,42 +1,140 @@
+import streamlit as st
 import os
 import json
-import streamlit as st
+import time
 from openai import OpenAI
+from jsonschema import validate, ValidationError
 
-st.set_page_config(page_title="📘 Readhacker — Book Metadata Extractor", layout="wide")
-st.title("📘 Readhacker — Book Metadata Extractor")
-st.markdown("Enter a book title and optionally an author to fetch structured book metadata in JSON.")
+# Load API key from environment variable
+api_key = os.environ.get("OPENAI_API_KEY")
+if not api_key:
+    st.error("Please set the OPENAI_API_KEY environment variable.")
+    st.stop()
 
-book_title = st.text_input("Book title")
-author_name = st.text_input("Author (optional)")
+# Initialize OpenAI client
+client = OpenAI(api_key=api_key)
+
+# Multi-valued JSON schema for Readhacker
+BOOK_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Readhacker Book Metadata",
+    "type": "object",
+    "required": ["title", "authors", "languages", "genres", "sources"],
+    "properties": {
+        "title": {
+            "type": "object",
+            "properties": {
+                "original": {"type": "string"},
+                "english": {"type": "array", "items": {"type": "string"}}
+            },
+            "required": ["original"]
+        },
+        "authors": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["full_name", "background"],
+                "properties": {
+                    "full_name": {"type": "string"},
+                    "background": {"type": "string"}
+                }
+            }
+        },
+        "editions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "edition_version": {"type": "string"},
+                    "publication_date": {"type": "string"},
+                    "language": {"type": "string"}
+                }
+            }
+        },
+        "languages": {"type": "array", "items": {"type": "string"}},
+        "genres": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"type": "string", "format": "uri"}}
+    },
+    "additionalProperties": False
+}
+
+# Streamlit UI
+st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
+st.title("📚 Readhacker: Book Metadata Finder")
+st.markdown(
+    "Enter a book title (and optionally author) to fetch canonical metadata using GPT-5 with web search."
+)
+
+# User input
+book_title = st.text_input("Book Title")
+book_author = st.text_input("Author (Optional)")
 
 if st.button("Fetch Metadata"):
-    if not book_title:
+    if not book_title.strip():
         st.warning("Please enter a book title.")
     else:
-        if not os.environ.get("OPENAI_API_KEY"):
-            st.error("OPENAI_API_KEY environment variable not set.")
-        else:
-            client = OpenAI()  # <-- Do NOT pass api_key here; SDK reads from environment
+        start_time = time.time()
+        with st.spinner("Fetching metadata..."):
+            prompt = f"""
+            You are a research assistant with web access. Given the book title '{book_title}' and author '{book_author}', 
+            provide canonical metadata for the book in strict JSON format matching this schema:
+
+            Required fields: 
+            - title (original and English) 
+            - authors (full_name and background; can be multiple) 
+            - editions (edition_version, publication_date, language; can be multiple) 
+            - languages (array) 
+            - genres (array) 
+            - sources (URLs; array)
+
+            Only include info relevant to the correct book. Do not hallucinate.
+            """
 
             try:
-                prompt = f"Return structured book metadata in JSON format for the following book:\nTitle: {book_title}"
-                if author_name:
-                    prompt += f"\nAuthor: {author_name}"
-
                 response = client.responses.create(
-                    model="gpt-5-mini",
+                    model="gpt-5",
+                    tools=[{"type": "web_search"}],
+                    reasoning={"effort": "low"},  # faster response
+                    tool_choice="auto",
                     input=prompt
                 )
 
-                metadata_text = response.output_text
+                metadata_output = response.output_text
+                elapsed = time.time() - start_time
+
+                st.subheader("Raw Metadata JSON")
+                st.code(metadata_output, language="json")
+                st.info(f"Fetch completed in {elapsed:.2f} seconds")
+
+                # Parse JSON
                 try:
-                    metadata_json = json.loads(metadata_text)
-                    st.subheader("Metadata JSON")
-                    st.json(metadata_json)
+                    metadata_json = json.loads(metadata_output)
+
+                    # === Auto-normalization ===
+                    # Ensure arrays
+                    if isinstance(metadata_json["title"].get("english"), str):
+                        metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
+
+                    if isinstance(metadata_json.get("languages"), str):
+                        metadata_json["languages"] = [metadata_json["languages"]]
+
+                    if isinstance(metadata_json.get("genres"), str):
+                        metadata_json["genres"] = [metadata_json["genres"]]
+
+                    if isinstance(metadata_json.get("authors"), dict):
+                        metadata_json["authors"] = [metadata_json["authors"]]
+
+                    if isinstance(metadata_json.get("editions"), dict):
+                        metadata_json["editions"] = [metadata_json["editions"]]
+
+                    # Validate against schema
+                    validate(instance=metadata_json, schema=BOOK_SCHEMA)
+                    st.success("Metadata is valid according to Readhacker schema!")
+
                 except json.JSONDecodeError:
-                    st.error("Failed to parse JSON from model output.")
-                    st.text(metadata_text)
+                    st.error("Output is not valid JSON.")
+                except ValidationError as ve:
+                    st.warning(f"Metadata JSON does not fully comply with schema: {ve.message}")
 
             except Exception as e:
                 st.error(f"Error fetching metadata: {e}")
