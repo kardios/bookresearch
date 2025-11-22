@@ -5,9 +5,8 @@ import os
 from openai import OpenAI
 from jsonschema import validate, ValidationError
 
-# Lazy client initializer (fixes "proxies" bug)
-def get_client():
-    return OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Initialize client (no proxies argument)
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Readhacker metadata schema
 READHACKER_SCHEMA = {
@@ -51,6 +50,7 @@ READHACKER_SCHEMA = {
     "required": ["title", "authors", "editions", "languages", "genres", "sources"]
 }
 
+# Reasoning effort toggle
 REASONING_MAP = {
     "none": "none",
     "low": "low",
@@ -60,25 +60,29 @@ REASONING_MAP = {
 
 st.title("📚 Readhacker – Book Metadata Extractor")
 
-query = st.text_input("Enter book title or keywords:")
+# Inputs
+title = st.text_input("Book Title:")
+author = st.text_input("Author (optional):")
+
+# Construct query
+query = title if not author.strip() else f"{title} by {author}"
+
 effort = st.selectbox("Reasoning effort:", ["none", "low", "medium", "high"], index=0)
 
 if st.button("Fetch Metadata"):
-    if not query.strip():
+    if not title.strip():
         st.error("Please enter a book title.")
         st.stop()
 
     st.write("🔎 Fetching metadata…")
     start_time = time.time()
 
-    client = get_client()   # ← FIX applied here
-
     system_prompt = """
 You are a metadata extraction assistant for a project called Readhacker.
-Your job is to search the web (through the model's web-search ability) and return clean,
-accurate metadata about the book the user is referring to.
+Your job is to search the web (via your built-in search tools) and return clean,
+accurate metadata about the book specified by the user.
 
-Return ONLY a JSON object following this schema:
+Return ONLY JSON matching this schema:
 
 {
   "title": {
@@ -104,11 +108,10 @@ Return ONLY a JSON object following this schema:
 }
 
 Rules:
-- Ensure all fields are correct and tied to the specific book.
-- Include multiple editions, languages, and genres if they exist.
-- ALL returned URLs must be real and verifiable.
-- Do NOT hallucinate publication dates.
-- If unsure, leave out uncertain details instead of guessing.
+- All URLs must be real and verifiable.
+- If a detail is uncertain, omit it rather than guessing.
+- Always include multiple editions when they exist.
+- Ensure the metadata corresponds *specifically* to the exact book identified by the given title and author.
 """
 
     try:
@@ -124,6 +127,7 @@ Rules:
 
         output = response.choices[0].message["content"]
 
+        # Parse JSON
         try:
             metadata = json.loads(output)
         except json.JSONDecodeError:
@@ -131,11 +135,15 @@ Rules:
             st.code(output)
             st.stop()
 
+        # Validate schema
         try:
             validate(instance=metadata, schema=READHACKER_SCHEMA)
+            valid = True
         except ValidationError as e:
+            valid = False
             st.error(f"⚠️ Metadata does NOT match schema:\n\n{e.message}")
 
+        # Show result
         st.subheader("📄 Extracted Metadata (Raw JSON)")
         st.code(json.dumps(metadata, indent=2), language="json")
 
