@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import json
+import time
 from openai import OpenAI
 
 # Load API key from environment variable
@@ -21,14 +22,13 @@ st.markdown(
 # User input
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
-allowed_domains = st.text_area("Optional Allowed Domains (comma-separated)")
 
 if st.button("Fetch Metadata"):
     if not book_title.strip():
         st.warning("Please enter a book title.")
     else:
+        start_time = time.time()
         with st.spinner("Fetching metadata..."):
-            domains_list = [d.strip() for d in allowed_domains.split(",") if d.strip()]
             prompt = f"""
             You are a research assistant with web access. Given the book title '{book_title}' and author '{book_author}', 
             provide canonical metadata for the book in strict JSON format with the following fields:
@@ -44,20 +44,20 @@ if st.button("Fetch Metadata"):
             """
 
             try:
-                tools_config = [{"type": "web_search"}]
-                if domains_list:
-                    tools_config[0]["filters"] = {"allowed_domains": domains_list}
-
                 response = client.responses.create(
                     model="gpt-5",
-                    tools=tools_config,
+                    tools=[{"type": "web_search"}],
+                    reasoning={"effort": "low"},  # faster response
                     tool_choice="auto",
                     input=prompt
                 )
 
                 metadata_output = response.output_text
+                elapsed = time.time() - start_time
+
                 st.subheader("Metadata JSON")
                 st.code(metadata_output, language="json")
+                st.info(f"Fetch completed in {elapsed:.2f} seconds")
 
                 # Optionally, validate JSON
                 try:
