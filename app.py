@@ -90,11 +90,24 @@ if st.button("Fetch Metadata"):
                 st.code(metadata_output, language="json")
                 st.info(f"Fetch completed in {elapsed:.2f} seconds")
 
-                # Validate JSON
+                # Parse JSON
                 try:
                     metadata_json = json.loads(metadata_output)
+
+                    # === Auto-normalization ===
+                    if isinstance(metadata_json["title"].get("english"), str):
+                        metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
+
+                    if isinstance(metadata_json.get("language"), str):
+                        metadata_json["language"] = [metadata_json["language"]]
+
+                    if isinstance(metadata_json.get("genre_category"), str):
+                        metadata_json["genre_category"] = [metadata_json["genre_category"]]
+
+                    # Validate against schema
                     validate(instance=metadata_json, schema=BOOK_SCHEMA)
                     st.success("Metadata is valid according to Readhacker schema!")
+
                 except json.JSONDecodeError:
                     st.error("Output is not valid JSON.")
                 except ValidationError as ve:
