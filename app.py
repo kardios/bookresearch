@@ -1,19 +1,32 @@
-import streamlit as st
-import json
-import time
+# ===============================
+# Remove proxy variables FIRST
+# ===============================
 import os
-from jsonschema import validate, ValidationError
 
-# --- FIX FOR STREAMLIT CLOUD PROXY ISSUE ---
-for key in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+for key in [
+    "HTTP_PROXY", "HTTPS_PROXY",
+    "http_proxy", "https_proxy",
+    "ALL_PROXY", "all_proxy"
+]:
     os.environ.pop(key, None)
 
+# ===============================
+# Imports AFTER cleaning proxies
+# ===============================
+import streamlit as st
+import json
+from jsonschema import validate, ValidationError
 from openai import OpenAI
+import time
 
+# ===============================
 # Initialize OpenAI client
+# ===============================
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
+# ===============================
 # Readhacker metadata schema
+# ===============================
 READHACKER_SCHEMA = {
     "type": "object",
     "properties": {
@@ -21,9 +34,9 @@ READHACKER_SCHEMA = {
             "type": "object",
             "properties": {
                 "original": {"type": "string"},
-                "english": {"type": "string"},
+                "english": {"type": "string"}
             },
-            "required": ["original", "english"]
+            "required": ["original"]
         },
         "authors": {
             "type": "array",
@@ -31,9 +44,9 @@ READHACKER_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "full_name": {"type": "string"},
-                    "background": {"type": "string"},
+                    "background": {"type": "string"}
                 },
-                "required": ["full_name", "background"]
+                "required": ["full_name"]
             }
         },
         "editions": {
@@ -43,73 +56,82 @@ READHACKER_SCHEMA = {
                 "properties": {
                     "edition_version": {"type": "string"},
                     "publication_date": {"type": "string"},
-                    "language": {"type": "string"},
+                    "language": {"type": "string"}
                 },
-                "required": ["edition_version", "publication_date", "language"]
+                "required": ["edition_version"]
             }
         },
         "languages": {"type": "array", "items": {"type": "string"}},
         "genres": {"type": "array", "items": {"type": "string"}},
-        "sources": {"type": "array", "items": {"type": "string"}},
+        "sources": {"type": "array", "items": {"type": "string"}}
     },
     "required": ["title", "authors", "editions", "languages", "genres", "sources"]
 }
 
-# --- STREAMLIT UI ---
-st.title("📚 Book Metadata Fetcher (GPT-5.1 Mini)")
-st.write("Enter a **book title** and (optionally) an **author name**.")
+# ===============================
+# Streamlit App UI
+# ===============================
+st.title("📘 Readhacker — Book Metadata Extractor")
 
-book_title = st.text_input("Book title")
-author_name = st.text_input("Author (optional)")
+st.write("Fetch structured, validated book metadata using GPT-5.1-mini + Web Search.")
 
-run_button = st.button("Fetch Metadata")
+book_title = st.text_input("Book Title")
+author_name = st.text_input("Author Name (optional)")
 
-# --- FUNCTION TO VALIDATE JSON ---
-def validate_metadata(metadata):
-    try:
-        validate(instance=metadata, schema=READHACKER_SCHEMA)
-        return True, None
-    except ValidationError as e:
-        return False, str(e)
+reasoning_effort = st.selectbox(
+    "Reasoning Effort",
+    ["none", "low", "medium", "high"],
+    index=0
+)
 
-# --- OPENAI METADATA REQUEST ---
-def fetch_metadata(title, author):
-    query = f"Title: {title}\n"
-    if author.strip():
-        query += f"Author: {author}\n"
-
-    response = client.responses.create(
-        model="gpt-5.1-mini",
-        input=f"Generate complete Readhacker metadata JSON for the following book.\n{query}",
-        max_output_tokens=800
-    )
-
-    # Extract the JSON from the model output
-    content = response.output_text
-
-    try:
-        metadata = json.loads(content)
-    except json.JSONDecodeError:
-        raise ValueError("Model returned invalid JSON.")
-
-    return metadata
-
-# --- MAIN ACTION ---
-if run_button:
-    if not book_title.strip():
+if st.button("Fetch Metadata"):
+    if not book_title:
         st.error("Please enter a book title.")
-    else:
-        with st.spinner("Fetching metadata from GPT-5.1 Mini..."):
+        st.stop()
+
+    with st.spinner("Querying GPT-5.1-mini with Web Search..."):
+        start = time.time()
+
+        try:
+            # Construct query
+            user_query = (
+                f"Book title: {book_title}\n"
+                f"Author (optional): {author_name or 'N/A'}\n\n"
+                "Return metadata compliant with this schema:\n"
+                f"{json.dumps(READHACKER_SCHEMA, indent=2)}"
+            )
+
+            # Call GPT-5.1-mini with web search enabled
+            response = client.chat.completions.create(
+                model="gpt-5.1-mini",
+                reasoning={"effort": reasoning_effort},
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": "Extract structured book metadata."},
+                    {"role": "user", "content": user_query}
+                ],
+                web_search={"enabled": True}
+            )
+
+            raw_output = response.choices[0].message["content"]
+
+            # Parse JSON
+            metadata = json.loads(raw_output)
+
+            # Validate JSON against schema
             try:
-                metadata = fetch_metadata(book_title, author_name)
-                valid, error = validate_metadata(metadata)
+                validate(instance=metadata, schema=READHACKER_SCHEMA)
+                st.success("Metadata is valid according to the Readhacker schema!")
+            except ValidationError as ve:
+                st.error("Metadata does NOT comply with schema.")
+                st.write(str(ve))
 
-                if not valid:
-                    st.error("❌ Metadata failed schema validation:")
-                    st.code(error)
-                else:
-                    st.success("✅ Metadata fetched and validated!")
-                    st.json(metadata)
+            # Display formatted JSON
+            st.subheader("📄 Extracted Metadata")
+            st.json(metadata)
 
-            except Exception as e:
-                st.error(f"Error: {e}")
+        except Exception as e:
+            st.error(f"Error fetching metadata: {e}")
+
+        end = time.time()
+        st.write(f"⏱️ Fetch completed in **{end - start:.2f} seconds**")
