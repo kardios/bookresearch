@@ -5,8 +5,9 @@ import os
 from openai import OpenAI
 from jsonschema import validate, ValidationError
 
-# Initialize client
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Lazy client initializer (fixes "proxies" bug)
+def get_client():
+    return OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # Readhacker metadata schema
 READHACKER_SCHEMA = {
@@ -50,7 +51,6 @@ READHACKER_SCHEMA = {
     "required": ["title", "authors", "editions", "languages", "genres", "sources"]
 }
 
-# Reasoning effort toggle
 REASONING_MAP = {
     "none": "none",
     "low": "low",
@@ -70,6 +70,8 @@ if st.button("Fetch Metadata"):
 
     st.write("🔎 Fetching metadata…")
     start_time = time.time()
+
+    client = get_client()   # ← FIX applied here
 
     system_prompt = """
 You are a metadata extraction assistant for a project called Readhacker.
@@ -122,7 +124,6 @@ Rules:
 
         output = response.choices[0].message["content"]
 
-        # Parse JSON
         try:
             metadata = json.loads(output)
         except json.JSONDecodeError:
@@ -130,15 +131,11 @@ Rules:
             st.code(output)
             st.stop()
 
-        # Validate schema
         try:
             validate(instance=metadata, schema=READHACKER_SCHEMA)
-            valid = True
         except ValidationError as e:
-            valid = False
             st.error(f"⚠️ Metadata does NOT match schema:\n\n{e.message}")
 
-        # Show result
         st.subheader("📄 Extracted Metadata (Raw JSON)")
         st.code(json.dumps(metadata, indent=2), language="json")
 
