@@ -94,7 +94,7 @@ if st.button("Fetch Metadata"):
                 response = client.responses.create(
                     model="gpt-5-mini",
                     tools=[{"type": "web_search"}],
-                    reasoning={"effort": "minimal"},  # faster response
+                    reasoning={"effort": "low"},  # faster response
                     tool_choice="auto",
                     input=prompt
                 )
