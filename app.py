@@ -11,7 +11,6 @@ if not api_key:
     st.error("Please set the OPENAI_API_KEY environment variable.")
     st.stop()
 
-# Initialize OpenAI client
 client = OpenAI(api_key=api_key)
 
 # Multi-valued JSON schema for Readhacker
@@ -60,9 +59,10 @@ BOOK_SCHEMA = {
 
 # Streamlit UI
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
-st.title("📚 Readhacker: Book Metadata Finder")
+st.title("📚 Readhacker: Book Metadata Finder (GPT-5.1, Minimal Reasoning)")
 st.markdown(
-    "Enter a book title (and optionally author) to fetch canonical metadata using GPT-5 with web search."
+    "Enter a book title (and optionally author) to fetch canonical metadata using GPT-5.1 with web search. "
+    "This version uses minimal reasoning for faster responses. No caching is used."
 )
 
 # User input
@@ -74,10 +74,10 @@ if st.button("Fetch Metadata"):
         st.warning("Please enter a book title.")
     else:
         start_time = time.time()
-        with st.spinner("Fetching metadata..."):
+        with st.spinner("Fetching metadata from web (GPT-5.1, minimal reasoning)..."):
             prompt = f"""
             You are a research assistant with web access. Given the book title '{book_title}' and author '{book_author}', 
-            provide canonical metadata for the book in strict JSON format matching this schema:
+            provide canonical metadata for the book in strict JSON format matching the Readhacker multi-valued schema.
 
             Required fields: 
             - title (original and English) 
@@ -92,16 +92,15 @@ if st.button("Fetch Metadata"):
 
             try:
                 response = client.responses.create(
-                    model="gpt-5",
+                    model="gpt-5.1",                   # GPT-5.1
                     tools=[{"type": "web_search"}],
-                    reasoning={"effort": "low"},  # faster response
+                    reasoning={"effort": "minimal"},   # minimal reasoning
                     tool_choice="auto",
                     input=prompt
                 )
 
                 metadata_output = response.output_text
                 elapsed = time.time() - start_time
-
                 st.subheader("Raw Metadata JSON")
                 st.code(metadata_output, language="json")
                 st.info(f"Fetch completed in {elapsed:.2f} seconds")
@@ -111,7 +110,6 @@ if st.button("Fetch Metadata"):
                     metadata_json = json.loads(metadata_output)
 
                     # === Auto-normalization ===
-                    # Ensure arrays
                     if isinstance(metadata_json["title"].get("english"), str):
                         metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
 
