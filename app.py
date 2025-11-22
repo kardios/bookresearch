@@ -27,7 +27,7 @@ if st.button("Fetch Metadata"):
                     prompt += f"\nAuthor: {author_name}"
 
                 response = client.responses.create(
-                    model="gpt-5.1-mini",
+                    model="gpt-5-mini",
                     input=prompt
                 )
 
