@@ -60,30 +60,23 @@ BOOK_SCHEMA = {
 
 # Streamlit UI
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
-st.title("📚 Readhacker: Metadata Fetch (GPT-5.1)")
+st.title("📚 Readhacker: Metadata Fetch (GPT-5-mini)")
 
 st.markdown(
-    "Fetch canonical book metadata from the web using GPT-5.1. "
-    "You can toggle reasoning effort for speed vs depth."
+    "Fetch canonical book metadata from the web using GPT-5-mini. "
+    "Results are displayed in a structured table."
 )
 
 # Inputs
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
 
-reasoning_effort = st.selectbox(
-    "Select Reasoning Effort",
-    options=["none", "low", "medium", "high"],
-    index=0,
-    help="none = fastest, low/medium/high = progressively more reasoning and depth"
-)
-
 if st.button("Fetch Metadata"):
     if not book_title.strip():
         st.warning("Please enter a book title.")
     else:
         start_time = time.time()
-        with st.spinner(f"Fetching metadata (GPT-5.1, reasoning: {reasoning_effort})..."):
+        with st.spinner("Fetching metadata (GPT-5-mini)..."):
             fetch_prompt = f"""
             You are a research assistant with web access. Given the book title '{book_title}' and author '{book_author}', 
             provide canonical metadata for the book in strict JSON format matching the Readhacker multi-valued schema.
@@ -101,9 +94,8 @@ if st.button("Fetch Metadata"):
 
             try:
                 response = client.responses.create(
-                    model="gpt-5.1",
+                    model="gpt-5-mini",
                     tools=[{"type": "web_search"}],
-                    reasoning={"effort": reasoning_effort},
                     tool_choice="auto",
                     input=fetch_prompt
                 )
