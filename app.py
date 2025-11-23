@@ -36,10 +36,9 @@ BOOK_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["full_name", "short_background"],
+                "required": ["full_name"],
                 "properties": {
-                    "full_name": {"type": "string"},
-                    "short_background": {"type": "string"}
+                    "full_name": {"type": "string"}
                 }
             }
         },
@@ -64,39 +63,40 @@ if st.button("Fetch Metadata"):
         st.warning("Please enter a book title.")
         st.stop()
 
-    # -----------------------------
-    # One-step prompt
-    # -----------------------------
-    prompt = f"""
-    You are a research assistant with web access. Given the book title '{book_title}' 
-    and optional author '{book_author}', extract the canonical metadata in JSON only.
-
-    Required fields:
-    - title (original and English)
-    - authors (full_name and short background; can be multiple)
-    - language (original language of the book)
-    - publication_date (first publication date)
-    - sources (list of URLs you used)
-
-    Only include verified information. Do not hallucinate. Return strict JSON.
-    """
-
-    # -----------------------------
-    # Fetch metadata (timed)
-    # -----------------------------
     start_time = time.time()
     with st.spinner("Fetching metadata..."):
+
+        # -----------------------------
+        # One-step prompt
+        # -----------------------------
+        prompt = f"""
+        You are a research assistant with web access. Given the book title '{book_title}' 
+        and optional author '{book_author}', extract the canonical metadata in JSON only.
+
+        Required fields:
+        - title (original and English)
+        - authors (full_name; can be multiple)
+        - language (original language of the book)
+        - publication_date (first publication date)
+        - sources (list of URLs you used)
+
+        Only include verified information. Do not hallucinate. Return strict JSON.
+        """
+
         try:
             response = client.responses.create(
-                model="gpt-5-nano",  # lighter/faster
+                model="gpt-5-nano",
                 tools=[{"type": "web_search"}],
                 tool_choice="auto",
                 input=prompt
             )
+
             metadata_output = response.output_text
+
         except Exception as e:
             st.error(f"Metadata fetch failed: {e}")
             st.stop()
+
     fetch_time = time.time() - start_time
     st.info(f"Metadata fetch completed in {fetch_time:.2f} seconds")
 
@@ -116,7 +116,7 @@ if st.button("Fetch Metadata"):
         st.stop()
 
     # -----------------------------
-    # Normalize 'english' field if needed
+    # Normalize title English field if needed
     # -----------------------------
     if isinstance(metadata_json["title"].get("english"), str):
         metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
