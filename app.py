@@ -16,7 +16,7 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 
 # ------------------------
-# Simplified Readhacker JSON Schema
+# READHACKER JSON SCHEMA (simplified)
 # ------------------------
 BOOK_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -37,9 +37,7 @@ BOOK_SCHEMA = {
             "items": {
                 "type": "object",
                 "required": ["full_name"],
-                "properties": {
-                    "full_name": {"type": "string"}
-                }
+                "properties": {"full_name": {"type": "string"}}
             }
         },
         "language": {"type": "string"},
@@ -53,130 +51,150 @@ BOOK_SCHEMA = {
 # Streamlit UI
 # ------------------------
 st.set_page_config(page_title="Readhacker Book Research", page_icon="📚")
-st.title("📚 Readhacker: Book Metadata & Research")
+st.title("📚 Readhacker: Book Metadata + Research")
 
+# Inputs
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
 
 model_choice = st.selectbox(
-    "Choose LLM for research steps",
-    ["gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5-pro"],
-    index=3
+    "Choose model for research",
+    options=["gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5-pro"],
+    index=3,
 )
+reasoning_effort = st.radio("Reasoning Effort", options=["low", "medium", "high"], index=1)
 
-if st.button("Fetch Metadata & Run Research"):
+if st.button("Fetch Metadata & Research"):
 
     if not book_title.strip():
         st.warning("Please enter a book title.")
         st.stop()
 
-    # -----------------------------
-    # Step 1: Fetch Canonical Metadata
-    # -----------------------------
     start_time = time.time()
     with st.spinner("Fetching canonical metadata..."):
+
+        # -----------------------------
+        # Canonical Metadata fetch
+        # -----------------------------
         metadata_prompt = f"""
         You are a research assistant with web access. Given the book title '{book_title}' 
         and optional author '{book_author}', extract canonical metadata in JSON only.
 
         Required fields:
         - title (original and English)
-        - authors (full_name; short background optional)
-        - language
-        - publication_date
-        - sources
+        - authors (full_name)
+        - language (original language of the book)
+        - publication_date (first publication date)
+        - sources (list of URLs)
 
         Only include verified information. Do not hallucinate. Return strict JSON.
         """
 
         try:
-            response = client.responses.create(
+            metadata_resp = client.responses.create(
                 model="gpt-5-nano",
                 tools=[{"type": "web_search"}],
                 tool_choice="auto",
-                input=metadata_prompt
+                reasoning={"effort": "low"},
+                input=metadata_prompt,
             )
-            metadata_output = response.output_text
-            metadata_fetch_time = time.time() - start_time
+            metadata_output = metadata_resp.output_text
         except Exception as e:
             st.error(f"Metadata fetch failed: {e}")
             st.stop()
 
+    fetch_time = time.time() - start_time
+    st.info(f"Metadata fetch completed in {fetch_time:.2f} seconds")
+
     # -----------------------------
-    # Parse and Validate JSON
+    # Parse & normalize metadata JSON
     # -----------------------------
     try:
         metadata_json = json.loads(metadata_output)
-        # Ensure english title is an array
-        if isinstance(metadata_json["title"].get("english"), str):
-            metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
-        validate(instance=metadata_json, schema=BOOK_SCHEMA)
-        st.success(f"Metadata fetched and validated! (Fetch time: {metadata_fetch_time:.2f}s)")
     except json.JSONDecodeError:
-        st.error("Output is not valid JSON.")
+        st.error("Metadata output is not valid JSON.")
         st.stop()
+
+    # Normalize lists
+    if isinstance(metadata_json.get("title", {}).get("english"), str):
+        metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
+
+    for key in ["authors", "sources"]:
+        if isinstance(metadata_json.get(key), dict):
+            metadata_json[key] = [metadata_json[key]]
+        elif isinstance(metadata_json.get(key), str):
+            metadata_json[key] = [metadata_json[key]]
+
+    # Validate JSON
+    try:
+        validate(instance=metadata_json, schema=BOOK_SCHEMA)
+        st.success("Canonical metadata is valid!")
     except ValidationError as ve:
         st.warning(f"Schema validation issue: {ve.message}")
 
     # -----------------------------
-    # Display Metadata in Text
+    # Display metadata in text
     # -----------------------------
-    with st.expander("📄 Canonical Metadata"):
-        st.text(f"Title (Original): {metadata_json['title']['original']}")
-        st.text(f"Title (English): {', '.join(metadata_json['title']['english'])}")
-        st.text(f"Authors: {', '.join([a['full_name'] for a in metadata_json['authors']])}")
-        st.text(f"Language: {metadata_json['language']}")
-        st.text(f"Publication Date: {metadata_json['publication_date']}")
-        st.text(f"Sources: {', '.join(metadata_json['sources'])}")
+    with st.expander("Canonical Metadata (Text)"):
+        st.text(f"Title (Original): {metadata_json['title'].get('original','')}")
+        st.text(f"Title (English): {', '.join(metadata_json['title'].get('english',[]))}")
+        authors_list = [a['full_name'] for a in metadata_json.get("authors",[])]
+        st.text(f"Authors: {', '.join(authors_list)}")
+        st.text(f"Language: {metadata_json.get('language','')}")
+        st.text(f"Publication Date: {metadata_json.get('publication_date','')}")
+        sources = metadata_json.get("sources",[]) or []
+        if isinstance(sources, str):
+            sources = [sources]
+        st.text(f"Sources: {', '.join(sources)}")
 
     # -----------------------------
-    # Step 2: Run Research on Book
+    # Research Step
     # -----------------------------
     research_prompt = f"""
-    You are a research assistant. Given the book:
+    Using the canonical metadata below, analyze the book and return a structured text report.
 
-    Title: {metadata_json['title']['original']}
-    Authors: {', '.join([a['full_name'] for a in metadata_json['authors']])}
-    Language: {metadata_json['language']}
-    Publication Date: {metadata_json['publication_date']}
+    Canonical Metadata:
+    {json.dumps(metadata_json, indent=2)}
 
-    Summarize the book in four areas:
-
+    Research Areas:
     1. Core Thesis
-    2. Key Arguments & Supporting Points
-    3. Counter-Intuitive Insights
-    4. Controversies & Debates
+    2. Key Arguments
+    3. Controversies
+    4. Counter-Intuitive Insights / What If scenarios
 
-    Return plain text for readability, no JSON needed, do not cite URLs.
+    Return plain text, readable summaries under each heading.
+    Do not include JSON.
     """
 
     research_start = time.time()
-    with st.spinner("Running research on book..."):
+    with st.spinner("Running research..."):
         try:
-            research_response = client.responses.create(
+            research_resp = client.responses.create(
                 model=model_choice,
-                reasoning={"effort": "medium"},
-                input=research_prompt
+                reasoning={"effort": reasoning_effort},
+                tools=[{"type": "web_search"}],
+                tool_choice="auto",
+                input=research_prompt,
             )
-            research_fetch_time = time.time() - research_start
-            research_text = research_response.output_text
+            research_output = research_resp.output_text
         except Exception as e:
             st.error(f"Research step failed: {e}")
             st.stop()
+    research_time = time.time() - research_start
+    st.info(f"Research completed in {research_time:.2f} seconds")
 
     # -----------------------------
-    # Display Research
+    # Display research output
     # -----------------------------
-    with st.expander("📚 Book Research Output"):
-        st.text(research_text)
-        st.info(f"Research completed in {research_fetch_time:.2f} seconds")
+    with st.expander("Book Research"):
+        st.text(research_output)
 
     # -----------------------------
-    # Download Button for JSON
+    # Download JSON
     # -----------------------------
     st.download_button(
-        label="📥 Download Canonical Metadata JSON",
-        data=json.dumps(metadata_json, indent=2),
-        file_name=f"{book_title.replace(' ','_')}_metadata.json",
-        mime="application/json"
+        "Download Canonical Metadata + Research",
+        data=json.dumps({"metadata": metadata_json, "research": research_output}, indent=2),
+        file_name="book_research.json",
+        mime="application/json",
     )
