@@ -160,7 +160,7 @@ if st.button("Fetch Metadata & Research"):
     1. Core Thesis
     2. Key Arguments
     3. Controversies
-    4. Counter-Intuitive Insights / What If scenarios
+    4. Counter-Intuitive Insights
 
     Return plain text, readable summaries under each heading.
     Do not include JSON.
