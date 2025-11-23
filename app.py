@@ -16,7 +16,7 @@ if not api_key:
 client = OpenAI(api_key=api_key)
 
 # ------------------------
-# JSON Schema (simplified)
+# READHACKER JSON SCHEMA (simplified)
 # ------------------------
 BOOK_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -54,7 +54,7 @@ BOOK_SCHEMA = {
 # Streamlit UI
 # ------------------------
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
-st.title("📚 Readhacker: Book Metadata Finder (One-Step, Clean + Sources)")
+st.title("📚 Readhacker: Book Metadata Finder (One-Step)")
 
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
@@ -67,17 +67,21 @@ if st.button("Fetch Metadata"):
     start_time = time.time()
     with st.spinner("Fetching metadata..."):
 
+        # -----------------------------
+        # One-step prompt
+        # -----------------------------
         prompt = f"""
         You are a research assistant with web access. Given the book title '{book_title}' 
-        and optional author '{book_author}', extract canonical metadata in strict JSON.
+        and optional author '{book_author}', extract the canonical metadata in JSON only.
 
-        Requirements:
-        1. Original title.
-        2. All plausible English titles (deduplicate if repeated) with source URLs.
-        3. Authors (full_name + short background), only if a source URL is available.
-        4. Language and first publication date.
-        5. Return a top-level array 'sources' listing ALL URLs used in metadata.
-        6. Return strict JSON only; do not include unverified info.
+        Required fields:
+        - title (original and English)
+        - authors (full_name and short background; can be multiple)
+        - language (original language of the book)
+        - publication_date (first publication date)
+        - sources (list of URLs you used)
+
+        Only include verified information. Do not hallucinate. Return strict JSON.
         """
 
         try:
@@ -113,27 +117,11 @@ if st.button("Fetch Metadata"):
         st.stop()
 
     # -----------------------------
-    # Normalize English titles and authors
-    # -----------------------------
-    # Deduplicate English titles
-    if "english" in metadata_json.get("title", {}):
-        metadata_json["title"]["english"] = list(dict.fromkeys(metadata_json["title"]["english"]))
-
-    # Ensure authors is always a list
-    if isinstance(metadata_json.get("authors"), dict):
-        metadata_json["authors"] = [metadata_json["authors"]]
-
-    # Ensure sources is a list
-    if isinstance(metadata_json.get("sources"), str):
-        metadata_json["sources"] = [metadata_json["sources"]]
-
-    # -----------------------------
     # Validate JSON
     # -----------------------------
     try:
         validate(instance=metadata_json, schema=BOOK_SCHEMA)
         st.success("Metadata is valid and normalized!")
-
     except ValidationError as ve:
         st.warning(f"Schema validation issue: {ve.message}")
 
