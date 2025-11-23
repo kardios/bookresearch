@@ -5,7 +5,9 @@ import time
 from openai import OpenAI
 from jsonschema import validate, ValidationError
 
-# Load API key from environment variable
+# ------------------------
+# CONFIG / CLIENT
+# ------------------------
 api_key = os.environ.get("OPENAI_API_KEY")
 if not api_key:
     st.error("Please set the OPENAI_API_KEY environment variable.")
@@ -88,9 +90,8 @@ if st.button("Fetch Metadata"):
         st.warning("Please enter a book title.")
         st.stop()
 
-    start_time = time.time()
-
-    with st.spinner("Fetching metadata..."):
+    t0 = time.time()
+    with st.spinner("Resolving book entity..."):
 
         # -----------------------------
         # 1. ENTITY CONFIRMATION STEP
@@ -106,10 +107,7 @@ if st.button("Fetch Metadata"):
             "confirmed_author": "...",
             "notes": "Very short clarification on how the entity was matched."
         }}
-
-        Do not include extra fields.
         """
-
         try:
             entity_result = client.responses.create(
                 model="gpt-5-mini",
@@ -117,16 +115,19 @@ if st.button("Fetch Metadata"):
                 tool_choice="auto",
                 input=entity_prompt
             )
-
             entity_json = json.loads(entity_result.output_text)
+            t1 = time.time()
+            time_entity = t1 - t0
+            st.info(f"Entity confirmation completed in {time_entity:.2f}s")
 
         except Exception as e:
             st.error(f"Entity resolution failed: {e}")
             st.stop()
 
-        # -----------------------------
-        # 2. METADATA GENERATION STEP
-        # -----------------------------
+    # -----------------------------
+    # 2. METADATA GENERATION STEP
+    # -----------------------------
+    with st.spinner("Fetching book metadata..."):
         metadata_prompt = f"""
         Using VERIFIED book identity:
 
@@ -142,17 +143,10 @@ if st.button("Fetch Metadata"):
                 "english": ["...", "..."]
             }},
             "authors": [
-                {{
-                    "full_name": "...",
-                    "background": "..."
-                }}
+                {{"full_name": "...", "background": "..."}}
             ],
             "editions": [
-                {{
-                    "edition_version": "...",
-                    "publication_date": "...",
-                    "language": "..."
-                }}
+                {{"edition_version": "...", "publication_date": "...", "language": "..."}}
             ],
             "languages": ["..."],
             "genres": ["..."],
@@ -161,84 +155,84 @@ if st.button("Fetch Metadata"):
 
         Do not include anything not supported by sources.
         """
-
         try:
-            response = client.responses.create(
+            metadata_result = client.responses.create(
                 model="gpt-5-mini",
                 tools=[{"type": "web_search"}],
                 tool_choice="auto",
                 input=metadata_prompt
             )
-
-            metadata_output = response.output_text
+            metadata_output = metadata_result.output_text
+            t2 = time.time()
+            time_metadata = t2 - t1
+            st.info(f"Metadata extraction completed in {time_metadata:.2f}s")
 
         except Exception as e:
             st.error(f"Metadata step failed: {e}")
             st.stop()
 
-        # Show raw JSON
-        st.subheader("Raw Metadata JSON")
-        st.code(metadata_output, language="json")
+    # -----------------------------
+    # Show raw JSON
+    # -----------------------------
+    st.subheader("Raw Metadata JSON")
+    st.code(metadata_output, language="json")
 
-        # -----------------------------
-        # Parse JSON
-        # -----------------------------
-        try:
-            metadata_json = json.loads(metadata_output)
+    # -----------------------------
+    # Parse JSON
+    # -----------------------------
+    try:
+        metadata_json = json.loads(metadata_output)
+    except json.JSONDecodeError:
+        st.error("Output is not valid JSON.")
+        st.stop()
 
-        except json.JSONDecodeError:
-            st.error("Output is not valid JSON.")
-            st.stop()
+    # -----------------------------
+    # Auto-normalize list fields
+    # -----------------------------
+    if isinstance(metadata_json["title"].get("english"), str):
+        metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
 
-        # -----------------------------
-        # Auto-normalize list fields
-        # -----------------------------
-        if isinstance(metadata_json["title"].get("english"), str):
-            metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
+    for key in ["languages", "genres", "authors", "editions", "sources"]:
+        if isinstance(metadata_json.get(key), str):
+            metadata_json[key] = [metadata_json[key]]
+        if isinstance(metadata_json.get(key), dict):
+            metadata_json[key] = [metadata_json[key]]
 
-        for key in ["languages", "genres", "authors", "editions", "sources"]:
-            if isinstance(metadata_json.get(key), str):
-                metadata_json[key] = [metadata_json[key]]
+    # -----------------------------
+    # HARD ENFORCEMENT: Controlled vocabularies + Other
+    # -----------------------------
+    normalized_genres = []
+    for g in metadata_json.get("genres", []):
+        g_lower = g.lower().strip()
+        if g_lower in CONTROLLED_GENRES:
+            normalized_genres.append(g)
+        else:
+            normalized_genres.append(f"Other: {g}")
+    metadata_json["genres"] = normalized_genres
 
-            if isinstance(metadata_json.get(key), dict):
-                metadata_json[key] = [metadata_json[key]]
+    normalized_languages = []
+    for lang in metadata_json.get("languages", []):
+        lang_lower = lang.lower().strip()
+        if lang_lower in CONTROLLED_LANGUAGES:
+            normalized_languages.append(lang)
+        else:
+            normalized_languages.append(f"Other: {lang}")
+    metadata_json["languages"] = normalized_languages
 
-        # -----------------------------
-        # HARD ENFORCEMENT:
-        # Controlled vocabularies + Other
-        # -----------------------------
-        normalized_genres = []
-        for g in metadata_json.get("genres", []):
-            g_lower = g.lower().strip()
-            if g_lower in CONTROLLED_GENRES:
-                normalized_genres.append(g)
-            else:
-                normalized_genres.append(f"Other: {g}")
+    # -----------------------------
+    # Validate against schema
+    # -----------------------------
+    try:
+        validate(instance=metadata_json, schema=BOOK_SCHEMA)
+        st.success("Metadata is valid and normalized!")
+    except ValidationError as ve:
+        st.warning(f"Schema validation issue: {ve.message}")
 
-        metadata_json["genres"] = normalized_genres
+    # -----------------------------
+    # Final output + elapsed
+    # -----------------------------
+    elapsed_total = time.time() - t0
+    st.info(f"Total elapsed time: {elapsed_total:.2f}s")
 
-        normalized_languages = []
-        for lang in metadata_json.get("languages", []):
-            lang_lower = lang.lower().strip()
-            if lang_lower in CONTROLLED_LANGUAGES:
-                normalized_languages.append(lang)
-            else:
-                normalized_languages.append(f"Other: {lang}")
-
-        metadata_json["languages"] = normalized_languages
-
-        # -----------------------------
-        # Validate against schema
-        # -----------------------------
-        try:
-            validate(instance=metadata_json, schema=BOOK_SCHEMA)
-            st.success("Metadata is valid and normalized!")
-
-        except ValidationError as ve:
-            st.warning(f"Schema validation issue: {ve.message}")
-
-        elapsed = time.time() - start_time
-        st.info(f"Completed in {elapsed:.2f} seconds")
-
-        st.subheader("Normalized + Validated JSON")
-        st.json(metadata_json)
+    st.subheader("Normalized + Validated JSON")
+    st.json(metadata_json)
