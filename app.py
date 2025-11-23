@@ -36,10 +36,10 @@ BOOK_SCHEMA = {
             "type": "array",
             "items": {
                 "type": "object",
-                "required": ["full_name", "background"],
+                "required": ["full_name", "short_background"],
                 "properties": {
                     "full_name": {"type": "string"},
-                    "background": {"type": "string"}
+                    "short_background": {"type": "string"}
                 }
             }
         },
@@ -54,7 +54,7 @@ BOOK_SCHEMA = {
 # Streamlit UI
 # ------------------------
 st.set_page_config(page_title="Readhacker Metadata Finder", page_icon="📚")
-st.title("📚 Readhacker: Book Metadata Finder (One-Step)")
+st.title("📚 Readhacker: Book Metadata Finder (One-Step with Timing)")
 
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
@@ -64,12 +64,12 @@ if st.button("Fetch Metadata"):
         st.warning("Please enter a book title.")
         st.stop()
 
-    start_time = time.time()
+    # -----------------------------
+    # 1. Fetch metadata
+    # -----------------------------
+    fetch_start = time.time()
     with st.spinner("Fetching metadata..."):
 
-        # -----------------------------
-        # One-step prompt
-        # -----------------------------
         prompt = f"""
         You are a research assistant with web access. Given the book title '{book_title}' 
         and optional author '{book_author}', extract the canonical metadata in JSON only.
@@ -91,39 +91,63 @@ if st.button("Fetch Metadata"):
                 tool_choice="auto",
                 input=prompt
             )
-
             metadata_output = response.output_text
-
         except Exception as e:
             st.error(f"Metadata fetch failed: {e}")
             st.stop()
+    fetch_end = time.time()
 
-    fetch_time = time.time() - start_time
-    st.info(f"Metadata fetch completed in {fetch_time:.2f} seconds")
-
-    # -----------------------------
-    # Show raw JSON
-    # -----------------------------
-    st.subheader("Raw Metadata JSON")
-    st.code(metadata_output, language="json")
+    st.info(f"Metadata fetch completed in {fetch_end - fetch_start:.2f} seconds")
 
     # -----------------------------
-    # Parse JSON
+    # 2. Parse JSON
     # -----------------------------
+    parse_start = time.time()
     try:
         metadata_json = json.loads(metadata_output)
     except json.JSONDecodeError:
         st.error("Output is not valid JSON.")
         st.stop()
+    parse_end = time.time()
+    st.info(f"JSON parsing completed in {parse_end - parse_start:.2f} seconds")
 
     # -----------------------------
-    # Validate JSON
+    # 3. Normalize + Validate
     # -----------------------------
+    norm_start = time.time()
+
+    # Ensure title.english is a list
+    if isinstance(metadata_json["title"].get("english"), str):
+        metadata_json["title"]["english"] = [metadata_json["title"]["english"]]
+
+    # Ensure authors is a list of dicts
+    authors = metadata_json.get("authors", [])
+    if isinstance(authors, dict):
+        metadata_json["authors"] = [authors]
+    elif isinstance(authors, list):
+        metadata_json["authors"] = [
+            a if isinstance(a, dict) else {"full_name": str(a), "short_background": ""}
+            for a in authors
+        ]
+    else:
+        metadata_json["authors"] = []
+
+    # Validate JSON
     try:
         validate(instance=metadata_json, schema=BOOK_SCHEMA)
         st.success("Metadata is valid and normalized!")
     except ValidationError as ve:
         st.warning(f"Schema validation issue: {ve.message}")
+    norm_end = time.time()
+
+    # -----------------------------
+    # Display
+    # -----------------------------
+    st.subheader("Raw Metadata JSON")
+    st.code(metadata_output, language="json")
 
     st.subheader("Normalized + Validated JSON")
     st.json(metadata_json)
+
+    total_time = fetch_end - fetch_start + parse_end - parse_start + norm_end - norm_start
+    st.info(f"Timing breakdown (seconds): Fetch={fetch_end - fetch_start:.2f}, Parse={parse_end - parse_start:.2f}, Normalize+Validate={norm_end - norm_start:.2f}, Total={total_time:.2f}")
