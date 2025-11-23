@@ -52,7 +52,7 @@ BOOK_SCHEMA = {
 # UI inputs
 # ------------------------
 st.title("📚 Readhacker — Metadata + Combined Research")
-st.markdown("Fetch canonical metadata with **gpt-5-nano**, then run a combined research step (Core Thesis, Key Arguments, Controversies) using a chosen model and reasoning level.")
+st.markdown("Fetch canonical metadata with **gpt-5-nano**, then run a combined research step (Core Thesis, Key Arguments, Counter-Intuitive Insights) using a chosen model and reasoning level.")
 
 book_title = st.text_input("Book Title")
 book_author = st.text_input("Author (Optional)")
@@ -165,7 +165,7 @@ if st.session_state["metadata_json"]:
     # Combined research step (one API call)
     # ------------------------
     st.markdown("### Combined Research Step (one call)")
-    st.write("This will produce: **Core Thesis**, **Key Arguments & Supporting Points**, and **Controversies & Debates** in one response. No source citations will be included.")
+    st.write("This will produce: **Core Thesis**, **Key Arguments & Supporting Points**, and **Counter-Intuitive Insights** in one response. No source citations will be included.")
     col1, col2 = st.columns([2,1])
     with col1:
         if st.button("Run Combined Research"):
@@ -194,8 +194,8 @@ produce a human-readable answer containing three labeled sections:
    - Provide 3-5 numbered key arguments the author uses to support the thesis.
    - For each argument, include 1-2 short supporting bullet points (evidence, examples, or reasoning).
 
-3) Controversies & Debates:
-   - List the main controversies, criticisms, or debates related to the book or its central claims. Keep these as bullet points.
+3) Counter-Intuitive Insights:
+   - List the main counter-intuitive insights related to the book or its central claims that go against conventional wisdom. Keep these as bullet points.
    - Do NOT include web URLs or formal citations — plain text only.
 
 Metadata (verified):
@@ -204,7 +204,7 @@ Metadata (verified):
 Constraints:
 - Base your output only on verifiable information from the provided metadata and your web search (if enabled).
 - Do NOT invent facts or attribute claims without basis.
-- Output only plain, human-readable text formatted with clear headings: "Core Thesis:", "Key Arguments:", "Controversies & Debates:".
+- Output only plain, human-readable text formatted with clear headings: "Core Thesis:", "Key Arguments:", "Counter-Intuitive Insights:".
 - Keep the entire response concise (aim for ~300-700 words).
 
 """
@@ -249,16 +249,16 @@ Constraints:
         # Attempt to split into the three labeled sections. If the model used exact headings, split by them; otherwise, fallback to whole text.
         text = st.session_state["research_text"]
         # Try to locate headings
-        sections = {"Core Thesis:": "", "Key Arguments:": "", "Controversies & Debates:": ""}
+        sections = {"Core Thesis:": "", "Key Arguments:": "", "Counter-Intuitive Insights:": ""}
         # naive split: find indices
         idx_core = text.find("Core Thesis:")
         idx_key = text.find("Key Arguments:")
-        idx_cont = text.find("Controversies & Debates:")
+        idx_cont = text.find("Counter-Intuitive Insights:")
         if idx_core != -1 and idx_key != -1:
             sections["Core Thesis:"] = text[idx_core + len("Core Thesis:"): idx_key].strip()
             if idx_cont != -1:
                 sections["Key Arguments:"] = text[idx_key + len("Key Arguments:"): idx_cont].strip()
-                sections["Controversies & Debates:"] = text[idx_cont + len("Controversies & Debates:"):].strip()
+                sections["Counter-Intuitive Insights:"] = text[idx_cont + len("Counter-Intuitive Insights:"):].strip()
             else:
                 sections["Key Arguments:"] = text[idx_key + len("Key Arguments:"):].strip()
         else:
@@ -301,8 +301,8 @@ Constraints:
         with st.expander("Key Arguments & Supporting Points", expanded=False):
             st.markdown(sections["Key Arguments:"] or "No content returned.")
 
-        with st.expander("Controversies & Debates", expanded=False):
-            st.markdown(sections["Controversies & Debates:"] or "No content returned.")
+        with st.expander("Counter-Intuitive Insights", expanded=False):
+            st.markdown(sections["Counter-Intuitive Insights:"] or "No content returned.")
 
 else:
     st.info("No validated metadata yet. Fetch canonical metadata first (left).")
