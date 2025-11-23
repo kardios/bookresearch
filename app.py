@@ -265,6 +265,36 @@ Constraints:
             # fallback: put entire text under Core Thesis expander
             sections["Core Thesis:"] = text
 
+        # ---------------------------------------------------------
+        # Human-readable metadata summary expander
+        # ---------------------------------------------------------
+        md = st.session_state["metadata_json"]
+        title_original = md["title"].get("original", "")
+        title_english = ", ".join(md["title"].get("english", []))
+        authors_list = ", ".join([a.get("full_name", "") for a in md.get("authors", [])])
+        language = md.get("language", "")
+        pub_date = md.get("publication_date", "")
+        sources_list = "\n".join([f"- {s}" for s in md.get("sources", [])])
+
+        metadata_summary_text = f"""
+        **Original Title:** {title_original}
+
+        **English Title(s):** {title_english}
+
+        **Author(s):** {authors_list}
+
+        **Language:** {language}
+
+        **First Publication Date:** {pub_date}
+
+        **Sources Used:**
+        {sources_list}
+        """
+
+        with st.expander("📄 Metadata Summary", expanded=True):
+            st.markdown(metadata_summary_text)
+
+        
         with st.expander("Core Thesis", expanded=True):
             st.markdown(sections["Core Thesis:"] or "No content returned.")
 
